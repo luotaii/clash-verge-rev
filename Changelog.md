@@ -23,6 +23,8 @@
 <details>
 <summary><strong> ✨ 新增功能 </strong></summary>
 
+- 新增 TUN 出口网卡锁定选项，可指定网卡或恢复自动选择
+
 
 </details>
 

@@ -1188,6 +1188,8 @@ export interface TranslationResources {
             autoRoute: string
             device: string
             dnsHijack: string
+            interfaceName: string
+            lockOutboundInterface: string
             mtu: string
             routeExcludeAddress: string
             stack: string
@@ -1195,6 +1197,8 @@ export interface TranslationResources {
           }
           messages: {
             applied: string
+            interfaceNameHint: string
+            interfaceNameRequired: string
             invalidRouteExcludeAddress: string
             routeExcludeAddressHint: string
           }

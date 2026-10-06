@@ -494,6 +494,8 @@
         "routeExcludeAddress": "라우트 제외 주소",
         "strictRoute": "엄격 라우팅",
         "autoDetectInterface": "인터페이스 자동 감지",
+        "lockOutboundInterface": "Lock Outbound Interface",
+        "interfaceName": "Outbound Interface Name",
         "dnsHijack": "DNS 하이재킹",
         "mtu": "MTU",
         "autoRedirect": "Auto Redirect"
@@ -505,6 +507,8 @@
       "messages": {
         "applied": "설정이 적용되었습니다",
         "invalidRouteExcludeAddress": "유효한 CIDR 대역을 입력하세요",
+        "interfaceNameRequired": "Please enter an outbound interface name",
+        "interfaceNameHint": "Sets the default outbound interface. Update the name when switching networks; node-specific interface settings take precedence.",
         "routeExcludeAddressHint": "IPv4/IPv6 CIDR만 지원합니다. 예: 192.168.0.0/16 또는 fd00::/8"
       }
     },

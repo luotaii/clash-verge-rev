@@ -36,6 +36,7 @@ interface IConfigData {
   }
   secret: string
   'unified-delay': boolean
+  'interface-name'?: string
   tun: {
     stack: string
     device: string

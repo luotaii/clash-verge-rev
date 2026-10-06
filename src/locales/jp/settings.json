@@ -494,6 +494,8 @@
         "routeExcludeAddress": "ルート除外アドレス",
         "strictRoute": "厳格なルート",
         "autoDetectInterface": "トラフィックの出口インターフェースを自動選択",
+        "lockOutboundInterface": "Lock Outbound Interface",
+        "interfaceName": "Outbound Interface Name",
         "dnsHijack": "DNSハイジャック",
         "mtu": "最大転送単位",
         "autoRedirect": "Auto Redirect"
@@ -505,6 +507,8 @@
       "messages": {
         "applied": "設定が適用されました",
         "invalidRouteExcludeAddress": "有効な CIDR ブロックを入力してください",
+        "interfaceNameRequired": "Please enter an outbound interface name",
+        "interfaceNameHint": "Sets the default outbound interface. Update the name when switching networks; node-specific interface settings take precedence.",
         "routeExcludeAddressHint": "IPv4/IPv6 の CIDR のみ対応しています。例: 192.168.0.0/16、fd00::/8"
       }
     },

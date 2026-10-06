@@ -494,6 +494,8 @@
         "routeExcludeAddress": "Route Exclude Address",
         "strictRoute": "Strict Route",
         "autoDetectInterface": "Auto Detect Interface",
+        "lockOutboundInterface": "Lock Outbound Interface",
+        "interfaceName": "Outbound Interface Name",
         "dnsHijack": "DNS Hijack",
         "mtu": "Max Transmission Unit",
         "autoRedirect": "Auto Redirect"
@@ -505,6 +507,8 @@
       "messages": {
         "applied": "Settings Applied",
         "invalidRouteExcludeAddress": "Please enter a valid CIDR block",
+        "interfaceNameRequired": "Please enter an outbound interface name",
+        "interfaceNameHint": "Sets the default outbound interface. Update the name when switching networks; node-specific interface settings take precedence.",
         "routeExcludeAddressHint": "Only IPv4/IPv6 CIDR is supported, such as 192.168.0.0/16 or fd00::/8"
       }
     },

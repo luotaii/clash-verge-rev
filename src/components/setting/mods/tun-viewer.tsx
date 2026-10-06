@@ -41,6 +41,8 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
   const { clash, mutateClash, patchClash } = useClash()
 
   const [open, setOpen] = useState(false)
+  const [outboundInterfaceChanged, setOutboundInterfaceChanged] =
+    useState(false)
   const [values, setValues] = useState({
     stack: 'mips',
     device: OS === 'macos' ? 'utun1024' : 'Mihomo',
@@ -48,6 +50,8 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
     routeExcludeAddress: '',
     autoRedirect: false,
     autoDetectInterface: true,
+    lockOutboundInterface: false,
+    interfaceName: '',
     dnsHijack: ['any:53'],
     strictRoute: false,
     mtu: 1500,
@@ -63,14 +67,19 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
   const routeExcludeAddressHelperText = routeExcludeAddressError
     ? t('settings.modals.tun.messages.invalidRouteExcludeAddress')
     : t('settings.modals.tun.messages.routeExcludeAddressHint')
+  const interfaceNameError =
+    values.lockOutboundInterface && values.interfaceName.trim() === ''
 
   useImperativeHandle(ref, () => ({
     open: () => {
       setOpen(true)
+      setOutboundInterfaceChanged(false)
       const nextAutoRoute = clash?.tun['auto-route'] ?? true
       const rawAutoRedirect = clash?.tun['auto-redirect'] ?? false
       const computedAutoRedirect =
         OS === 'linux' ? (nextAutoRoute ? rawAutoRedirect : false) : false
+      const interfaceName = clash?.['interface-name']?.trim() ?? ''
+      const autoDetectInterface = clash?.tun['auto-detect-interface'] ?? true
       setValues({
         stack: clash?.tun.stack ?? 'mips',
         device: clash?.tun.device ?? (OS === 'macos' ? 'utun1024' : 'Mihomo'),
@@ -79,7 +88,9 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
           ',',
         ),
         autoRedirect: computedAutoRedirect,
-        autoDetectInterface: clash?.tun['auto-detect-interface'] ?? true,
+        autoDetectInterface,
+        lockOutboundInterface: interfaceName !== '' && !autoDetectInterface,
+        interfaceName,
         dnsHijack: clash?.tun['dns-hijack'] ?? ['any:53'],
         strictRoute: clash?.tun['strict-route'] ?? false,
         mtu: clash?.tun.mtu ?? 1500,
@@ -99,6 +110,17 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
         return
       }
 
+      if (interfaceNameError) {
+        showNotice.error('settings.modals.tun.messages.interfaceNameRequired')
+        return
+      }
+
+      const interfaceName = values.lockOutboundInterface
+        ? values.interfaceName.trim()
+        : ''
+      const interfacePatch = outboundInterfaceChanged
+        ? { 'interface-name': interfaceName }
+        : {}
       const tun: IConfigData['tun'] = {
         stack: values.stack,
         device:
@@ -114,16 +136,19 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
               'auto-redirect': values.autoRedirect,
             }
           : {}),
-        'auto-detect-interface': values.autoDetectInterface,
+        'auto-detect-interface': values.lockOutboundInterface
+          ? false
+          : values.autoDetectInterface,
         'dns-hijack': values.dnsHijack[0] === '' ? [] : values.dnsHijack,
         'strict-route': values.strictRoute,
         mtu: values.mtu ?? 1500,
       }
-      await patchClash({ tun })
+      await patchClash({ tun, ...interfacePatch })
       await mutateClash(
         (old) => ({
           ...old!,
           tun,
+          ...interfacePatch,
         }),
         false,
       )
@@ -169,15 +194,19 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
                 routeExcludeAddress: '',
                 autoRedirect: false,
                 autoDetectInterface: true,
+                lockOutboundInterface: false,
+                interfaceName: '',
                 dnsHijack: ['any:53'],
                 strictRoute: false,
                 mtu: 1500,
               })
-              await patchClash({ tun })
+              setOutboundInterfaceChanged(true)
+              await patchClash({ tun, 'interface-name': '' })
               await mutateClash(
                 (old) => ({
                   ...old!,
                   tun,
+                  'interface-name': '',
                 }),
                 false,
               )
@@ -276,6 +305,53 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
 
         <ListItem sx={{ padding: '5px 2px' }}>
           <ListItemText
+            primary={t('settings.modals.tun.fields.lockOutboundInterface')}
+          />
+          <Switch
+            edge="end"
+            checked={values.lockOutboundInterface}
+            onChange={(_, c) => {
+              setOutboundInterfaceChanged(true)
+              setValues((v) => ({
+                ...v,
+                lockOutboundInterface: c,
+                interfaceName: c ? v.interfaceName : '',
+                autoDetectInterface: !c,
+              }))
+            }}
+          />
+        </ListItem>
+
+        {values.lockOutboundInterface && (
+          <ListItem sx={{ padding: '5px 2px' }}>
+            <TextField
+              fullWidth
+              autoComplete="new-password"
+              size="small"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck="false"
+              label={t('settings.modals.tun.fields.interfaceName')}
+              value={values.interfaceName}
+              placeholder={
+                OS === 'windows' ? 'WLAN' : OS === 'macos' ? 'en0' : 'eth0'
+              }
+              error={interfaceNameError}
+              helperText={
+                interfaceNameError
+                  ? t('settings.modals.tun.messages.interfaceNameRequired')
+                  : t('settings.modals.tun.messages.interfaceNameHint')
+              }
+              onChange={(e) => {
+                setOutboundInterfaceChanged(true)
+                setValues((v) => ({ ...v, interfaceName: e.target.value }))
+              }}
+            />
+          </ListItem>
+        )}
+
+        <ListItem sx={{ padding: '5px 2px' }}>
+          <ListItemText
             primary={t('settings.modals.tun.fields.autoDetectInterface')}
           />
           <Switch
@@ -284,6 +360,7 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
             onChange={(_, c) =>
               setValues((v) => ({ ...v, autoDetectInterface: c }))
             }
+            disabled={values.lockOutboundInterface}
           />
         </ListItem>
 
