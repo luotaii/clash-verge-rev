@@ -6,6 +6,7 @@ import {
   ListItemText,
   MenuItem,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material'
 import { useLockFn } from 'ahooks'
@@ -21,6 +22,7 @@ import {
   Switch,
 } from '@/components/base'
 import { useClash } from '@/hooks/use-clash'
+import { useVerge } from '@/hooks/use-verge'
 import { enhanceProfiles, getNetworkInterfacesInfo } from '@/services/cmds'
 import { showNotice } from '@/services/notice-service'
 import getSystem from '@/utils/get-system'
@@ -40,9 +42,12 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
   const { t } = useTranslation()
 
   const { clash, mutateClash, patchClash } = useClash()
+  const { verge, patchVerge } = useVerge()
 
   const [open, setOpen] = useState(false)
   const [outboundInterfaceChanged, setOutboundInterfaceChanged] =
+    useState(false)
+  const [compatibilityGuardChanged, setCompatibilityGuardChanged] =
     useState(false)
   const [networkInterfaces, setNetworkInterfaces] = useState<
     INetworkInterface[] | null
@@ -58,6 +63,7 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
     autoDetectInterface: true,
     lockOutboundInterface: false,
     interfaceName: '',
+    tunCompatibilityGuard: false,
     dnsHijack: ['any:53'],
     strictRoute: false,
     mtu: 1500,
@@ -75,6 +81,8 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
     : t('settings.modals.tun.messages.routeExcludeAddressHint')
   const interfaceNameError =
     values.lockOutboundInterface && values.interfaceName.trim() === ''
+  const hasLockedInterface =
+    values.lockOutboundInterface && values.interfaceName.trim() !== ''
   const interfaceNameMissing =
     values.interfaceName !== '' &&
     !networkInterfaces?.some((iface) => iface.name === values.interfaceName)
@@ -107,6 +115,7 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
     open: () => {
       setOpen(true)
       setOutboundInterfaceChanged(false)
+      setCompatibilityGuardChanged(false)
       void fetchNetworkInterfaces()
       const nextAutoRoute = clash?.tun['auto-route'] ?? true
       const rawAutoRedirect = clash?.tun['auto-redirect'] ?? false
@@ -125,6 +134,7 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
         autoDetectInterface,
         lockOutboundInterface: interfaceName !== '' && !autoDetectInterface,
         interfaceName,
+        tunCompatibilityGuard: verge?.enable_tun_compatibility_guard ?? false,
         dnsHijack: clash?.tun['dns-hijack'] ?? ['any:53'],
         strictRoute: clash?.tun['strict-route'] ?? false,
         mtu: clash?.tun.mtu ?? 1500,
@@ -134,6 +144,7 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
   }))
 
   const onSave = useLockFn(async () => {
+    let settingsApplied = false
     try {
       const routeExcludeAddress = routeExcludeAddressItems
 
@@ -146,6 +157,17 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
 
       if (interfaceNameError) {
         showNotice.error('settings.modals.tun.messages.interfaceNameRequired')
+        return
+      }
+
+      if (
+        OS === 'windows' &&
+        values.tunCompatibilityGuard &&
+        !hasLockedInterface
+      ) {
+        showNotice.error(
+          'settings.modals.tun.messages.tunCompatibilityGuardRequiresInterface',
+        )
         return
       }
 
@@ -177,7 +199,16 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
         'strict-route': values.strictRoute,
         mtu: values.mtu ?? 1500,
       }
+      if (
+        OS === 'windows' &&
+        compatibilityGuardChanged &&
+        !values.tunCompatibilityGuard
+      ) {
+        await patchVerge({ enable_tun_compatibility_guard: false })
+        settingsApplied = true
+      }
       await patchClash({ tun, ...interfacePatch })
+      settingsApplied = true
       await mutateClash(
         (old) => ({
           ...old!,
@@ -186,13 +217,24 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
         }),
         false,
       )
+      if (
+        OS === 'windows' &&
+        compatibilityGuardChanged &&
+        values.tunCompatibilityGuard
+      ) {
+        await patchVerge({ enable_tun_compatibility_guard: true })
+      }
       setOpen(false)
       showNotice.success('settings.modals.tun.messages.applied')
       void enhanceProfiles().catch((err: any) => {
         showNotice.error(err)
       })
     } catch (err: any) {
-      showNotice.error(err)
+      if (settingsApplied) {
+        showNotice.error('settings.modals.tun.messages.partialSaveFailed', err)
+      } else {
+        showNotice.error(err)
+      }
     }
   })
 
@@ -230,20 +272,39 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
                 autoDetectInterface: true,
                 lockOutboundInterface: false,
                 interfaceName: '',
+                tunCompatibilityGuard: false,
                 dnsHijack: ['any:53'],
                 strictRoute: false,
                 mtu: 1500,
               })
               setOutboundInterfaceChanged(true)
-              await patchClash({ tun, 'interface-name': '' })
-              await mutateClash(
-                (old) => ({
-                  ...old!,
-                  tun,
-                  'interface-name': '',
-                }),
-                false,
-              )
+              setCompatibilityGuardChanged(true)
+              let settingsApplied = false
+              try {
+                if (OS === 'windows') {
+                  await patchVerge({ enable_tun_compatibility_guard: false })
+                  settingsApplied = true
+                }
+                await patchClash({ tun, 'interface-name': '' })
+                settingsApplied = true
+                await mutateClash(
+                  (old) => ({
+                    ...old!,
+                    tun,
+                    'interface-name': '',
+                  }),
+                  false,
+                )
+              } catch (err: any) {
+                if (settingsApplied) {
+                  showNotice.error(
+                    'settings.modals.tun.messages.partialSaveFailed',
+                    err,
+                  )
+                } else {
+                  showNotice.error(err)
+                }
+              }
             }}
           >
             {t('shared.actions.resetToDefault')}
@@ -429,6 +490,36 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
             >
               {t('shared.actions.refresh')}
             </Button>
+          </ListItem>
+        )}
+
+        {OS === 'windows' && (
+          <ListItem sx={{ padding: '5px 2px', gap: 1 }}>
+            <ListItemText
+              primary={t('settings.modals.tun.fields.tunCompatibilityGuard')}
+              secondary={t(
+                'settings.modals.tun.messages.tunCompatibilityGuardHint',
+              )}
+            />
+            <Tooltip
+              title={t('settings.modals.tun.tooltips.tunCompatibilityGuard')}
+              arrow
+            >
+              <span>
+                <Switch
+                  edge="end"
+                  checked={values.tunCompatibilityGuard}
+                  disabled={
+                    !values.tunCompatibilityGuard && !hasLockedInterface
+                  }
+                  onChange={(_, c) => {
+                    setCompatibilityGuardChanged(true)
+                    if (c) setOutboundInterfaceChanged(true)
+                    setValues((v) => ({ ...v, tunCompatibilityGuard: c }))
+                  }}
+                />
+              </span>
+            </Tooltip>
           </ListItem>
         )}
 
