@@ -495,7 +495,7 @@
         "strictRoute": "嚴格路由",
         "autoDetectInterface": "自動偵測流量輸出介面",
         "lockOutboundInterface": "鎖定流量輸出介面",
-        "interfaceName": "輸出介面名稱",
+        "interfaceName": "流量輸出介面",
         "dnsHijack": "DNS 綁架",
         "mtu": "最大傳輸單位",
         "autoRedirect": "自動重導"
@@ -507,8 +507,11 @@
       "messages": {
         "applied": "設定已套用",
         "invalidRouteExcludeAddress": "請輸入有效的 CIDR 網段",
-        "interfaceNameRequired": "請輸入流量輸出介面名稱",
-        "interfaceNameHint": "將此介面設為預設流量出口。切換網路後需更新介面名稱；節點個別指定的介面優先。",
+        "interfaceNameRequired": "請選擇流量輸出介面",
+        "interfaceNameHint": "將所選介面設為預設流量出口。切換網路後請重新選擇；節點個別指定的介面優先。",
+        "interfacesEmpty": "沒有可選介面，請重新整理清單後再試。",
+        "interfacesLoadFailed": "讀取介面清單失敗，請重新整理後再試。",
+        "interfaceNotDetected": "未偵測到",
         "routeExcludeAddressHint": "僅支援 IPv4/IPv6 CIDR，例如 192.168.0.0/16 或 fd00::/8"
       }
     },

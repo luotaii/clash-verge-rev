@@ -1199,6 +1199,9 @@ export interface TranslationResources {
             applied: string
             interfaceNameHint: string
             interfaceNameRequired: string
+            interfaceNotDetected: string
+            interfacesEmpty: string
+            interfacesLoadFailed: string
             invalidRouteExcludeAddress: string
             routeExcludeAddressHint: string
           }

@@ -495,7 +495,7 @@
         "strictRoute": "Катгый маршрутлау",
         "autoDetectInterface": "Интерфейсны автоматик ачыклау",
         "lockOutboundInterface": "Lock Outbound Interface",
-        "interfaceName": "Outbound Interface Name",
+        "interfaceName": "Outbound Interface",
         "dnsHijack": "DNS'ны үзгәртеп тоту (hijack)",
         "mtu": "MTU (макс. тапшыру берәмлеге)",
         "autoRedirect": "Auto Redirect"
@@ -507,8 +507,11 @@
       "messages": {
         "applied": "Көйләүләр кулланылды",
         "invalidRouteExcludeAddress": "Дөрес CIDR блогын кертегез",
-        "interfaceNameRequired": "Please enter an outbound interface name",
-        "interfaceNameHint": "Sets the default outbound interface. Update the name when switching networks; node-specific interface settings take precedence.",
+        "interfaceNameRequired": "Please select an outbound interface",
+        "interfaceNameHint": "Locks default outbound connections to the selected interface. Select again when switching networks; node-specific interfaces take precedence.",
+        "interfacesEmpty": "No interfaces found. Refresh to try again.",
+        "interfacesLoadFailed": "Could not load interfaces. Refresh to try again.",
+        "interfaceNotDetected": "Not detected",
         "routeExcludeAddressHint": "IPv4/IPv6 CIDR блоклары гына хуплана, мәсәлән 192.168.0.0/16 яки fd00::/8"
       }
     },

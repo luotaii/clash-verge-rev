@@ -495,7 +495,7 @@
         "strictRoute": "توجيه صارم",
         "autoDetectInterface": "الكشف التلقائي عن الواجهة",
         "lockOutboundInterface": "Lock Outbound Interface",
-        "interfaceName": "Outbound Interface Name",
+        "interfaceName": "Outbound Interface",
         "dnsHijack": "اختطاف DNS",
         "mtu": "وحدة الإرسال القصوى",
         "autoRedirect": "Auto Redirect"
@@ -507,8 +507,11 @@
       "messages": {
         "applied": "تم تطبيق الإعدادات",
         "invalidRouteExcludeAddress": "يرجى إدخال نطاق CIDR صالح",
-        "interfaceNameRequired": "Please enter an outbound interface name",
-        "interfaceNameHint": "Sets the default outbound interface. Update the name when switching networks; node-specific interface settings take precedence.",
+        "interfaceNameRequired": "Please select an outbound interface",
+        "interfaceNameHint": "Locks default outbound connections to the selected interface. Select again when switching networks; node-specific interfaces take precedence.",
+        "interfacesEmpty": "No interfaces found. Refresh to try again.",
+        "interfacesLoadFailed": "Could not load interfaces. Refresh to try again.",
+        "interfaceNotDetected": "Not detected",
         "routeExcludeAddressHint": "يتم دعم CIDR لـ IPv4/IPv6 فقط، مثل 192.168.0.0/16 أو fd00::/8"
       }
     },

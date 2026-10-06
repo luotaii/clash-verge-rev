@@ -4,6 +4,7 @@ import {
   List,
   ListItem,
   ListItemText,
+  MenuItem,
   TextField,
   Typography,
 } from '@mui/material'
@@ -20,7 +21,7 @@ import {
   Switch,
 } from '@/components/base'
 import { useClash } from '@/hooks/use-clash'
-import { enhanceProfiles } from '@/services/cmds'
+import { enhanceProfiles, getNetworkInterfacesInfo } from '@/services/cmds'
 import { showNotice } from '@/services/notice-service'
 import getSystem from '@/utils/get-system'
 import { areValidIpCidrs } from '@/utils/network'
@@ -43,6 +44,11 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
   const [open, setOpen] = useState(false)
   const [outboundInterfaceChanged, setOutboundInterfaceChanged] =
     useState(false)
+  const [networkInterfaces, setNetworkInterfaces] = useState<
+    INetworkInterface[] | null
+  >(null)
+  const [interfacesLoading, setInterfacesLoading] = useState(false)
+  const [interfacesError, setInterfacesError] = useState(false)
   const [values, setValues] = useState({
     stack: 'mips',
     device: OS === 'macos' ? 'utun1024' : 'Mihomo',
@@ -69,16 +75,44 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
     : t('settings.modals.tun.messages.routeExcludeAddressHint')
   const interfaceNameError =
     values.lockOutboundInterface && values.interfaceName.trim() === ''
+  const interfaceNameMissing =
+    values.interfaceName !== '' &&
+    !networkInterfaces?.some((iface) => iface.name === values.interfaceName)
+  const interfaceNameNotDetected =
+    interfaceNameMissing &&
+    networkInterfaces !== null &&
+    !interfacesLoading &&
+    !interfacesError
+  const interfacesStatus = interfacesLoading
+    ? t('shared.statuses.loading')
+    : interfacesError
+      ? t('settings.modals.tun.messages.interfacesLoadFailed')
+      : networkInterfaces?.length === 0
+        ? t('settings.modals.tun.messages.interfacesEmpty')
+        : ''
+
+  const fetchNetworkInterfaces = useLockFn(async () => {
+    setInterfacesLoading(true)
+    setInterfacesError(false)
+    try {
+      setNetworkInterfaces(await getNetworkInterfacesInfo())
+    } catch {
+      setInterfacesError(true)
+    } finally {
+      setInterfacesLoading(false)
+    }
+  })
 
   useImperativeHandle(ref, () => ({
     open: () => {
       setOpen(true)
       setOutboundInterfaceChanged(false)
+      void fetchNetworkInterfaces()
       const nextAutoRoute = clash?.tun['auto-route'] ?? true
       const rawAutoRedirect = clash?.tun['auto-redirect'] ?? false
       const computedAutoRedirect =
         OS === 'linux' ? (nextAutoRoute ? rawAutoRedirect : false) : false
-      const interfaceName = clash?.['interface-name']?.trim() ?? ''
+      const interfaceName = clash?.['interface-name'] ?? ''
       const autoDetectInterface = clash?.tun['auto-detect-interface'] ?? true
       setValues({
         stack: clash?.tun.stack ?? 'mips',
@@ -116,7 +150,7 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
       }
 
       const interfaceName = values.lockOutboundInterface
-        ? values.interfaceName.trim()
+        ? values.interfaceName
         : ''
       const interfacePatch = outboundInterfaceChanged
         ? { 'interface-name': interfaceName }
@@ -323,30 +357,78 @@ export function TunViewer({ ref }: { ref?: Ref<DialogRef> }) {
         </ListItem>
 
         {values.lockOutboundInterface && (
-          <ListItem sx={{ padding: '5px 2px' }}>
+          <ListItem
+            sx={{ padding: '5px 2px', alignItems: 'flex-start', gap: 1 }}
+          >
             <TextField
+              select
               fullWidth
-              autoComplete="new-password"
               size="small"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck="false"
               label={t('settings.modals.tun.fields.interfaceName')}
               value={values.interfaceName}
-              placeholder={
-                OS === 'windows' ? 'WLAN' : OS === 'macos' ? 'en0' : 'eth0'
-              }
+              disabled={interfacesLoading}
               error={interfaceNameError}
               helperText={
-                interfaceNameError
-                  ? t('settings.modals.tun.messages.interfaceNameRequired')
-                  : t('settings.modals.tun.messages.interfaceNameHint')
+                <>
+                  {interfaceNameError
+                    ? t('settings.modals.tun.messages.interfaceNameRequired')
+                    : t('settings.modals.tun.messages.interfaceNameHint')}
+                  {interfacesStatus && (
+                    <Box component="span" sx={{ display: 'block' }}>
+                      {interfacesStatus}
+                    </Box>
+                  )}
+                </>
               }
+              slotProps={{
+                select: {
+                  renderValue: () =>
+                    interfaceNameNotDetected
+                      ? `${values.interfaceName} (${t('settings.modals.tun.messages.interfaceNotDetected')})`
+                      : values.interfaceName,
+                },
+              }}
               onChange={(e) => {
                 setOutboundInterfaceChanged(true)
                 setValues((v) => ({ ...v, interfaceName: e.target.value }))
               }}
-            />
+            >
+              <MenuItem value="" disabled>
+                {t('settings.modals.tun.messages.interfaceNameRequired')}
+              </MenuItem>
+              {(networkInterfaces ?? []).map((iface) => (
+                <MenuItem key={iface.name} value={iface.name}>
+                  <ListItemText
+                    primary={iface.name}
+                    secondary={iface.addr
+                      .map((address) => address.V4?.ip ?? address.V6?.ip)
+                      .filter(Boolean)
+                      .join(', ')}
+                  />
+                </MenuItem>
+              ))}
+              {interfaceNameMissing && (
+                <MenuItem value={values.interfaceName}>
+                  <ListItemText
+                    primary={values.interfaceName}
+                    secondary={
+                      interfaceNameNotDetected
+                        ? t('settings.modals.tun.messages.interfaceNotDetected')
+                        : undefined
+                    }
+                  />
+                </MenuItem>
+              )}
+            </TextField>
+            <Button
+              size="small"
+              variant="outlined"
+              disabled={interfacesLoading}
+              onClick={() => void fetchNetworkInterfaces()}
+              sx={{ flexShrink: 0, minHeight: 40 }}
+            >
+              {t('shared.actions.refresh')}
+            </Button>
           </ListItem>
         )}
 

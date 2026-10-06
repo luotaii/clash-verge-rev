@@ -495,7 +495,7 @@
         "strictRoute": "Строгая маршрутизация",
         "autoDetectInterface": "Автоопределение интерфейса",
         "lockOutboundInterface": "Lock Outbound Interface",
-        "interfaceName": "Outbound Interface Name",
+        "interfaceName": "Outbound Interface",
         "dnsHijack": "Перехват DNS",
         "mtu": "MTU",
         "autoRedirect": "Автоматическое перенаправление"
@@ -507,8 +507,11 @@
       "messages": {
         "applied": "Настройки применены",
         "invalidRouteExcludeAddress": "Введите корректный блок CIDR",
-        "interfaceNameRequired": "Please enter an outbound interface name",
-        "interfaceNameHint": "Sets the default outbound interface. Update the name when switching networks; node-specific interface settings take precedence.",
+        "interfaceNameRequired": "Please select an outbound interface",
+        "interfaceNameHint": "Locks default outbound connections to the selected interface. Select again when switching networks; node-specific interfaces take precedence.",
+        "interfacesEmpty": "No interfaces found. Refresh to try again.",
+        "interfacesLoadFailed": "Could not load interfaces. Refresh to try again.",
+        "interfaceNotDetected": "Not detected",
         "routeExcludeAddressHint": "Поддерживаются только блоки CIDR IPv4/IPv6, например 192.168.0.0/16 или fd00::/8"
       }
     },

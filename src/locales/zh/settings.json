@@ -495,7 +495,7 @@
         "strictRoute": "严格路由",
         "autoDetectInterface": "自动选择流量出口接口",
         "lockOutboundInterface": "锁定流量出口接口",
-        "interfaceName": "出口接口名称",
+        "interfaceName": "出口网卡",
         "dnsHijack": "DNS 劫持",
         "mtu": "最大传输单元",
         "autoRedirect": "自动重定向"
@@ -507,8 +507,11 @@
       "messages": {
         "applied": "设置已应用",
         "invalidRouteExcludeAddress": "请输入有效的 CIDR 网段",
-        "interfaceNameRequired": "请输入出口接口名称",
-        "interfaceNameHint": "将此接口设为默认流量出口。切换网络后需更新接口名称；节点单独指定的接口优先。",
+        "interfaceNameRequired": "请选择出口网卡",
+        "interfaceNameHint": "将所选网卡设为默认流量出口。切换网络后请重新选择；节点单独指定的接口优先。",
+        "interfacesEmpty": "没有可选网卡，请刷新列表重试。",
+        "interfacesLoadFailed": "读取网卡列表失败，请刷新重试。",
+        "interfaceNotDetected": "未检测到",
         "routeExcludeAddressHint": "仅支持 IPv4/IPv6 CIDR，例如 192.168.0.0/16 或 fd00::/8"
       }
     },

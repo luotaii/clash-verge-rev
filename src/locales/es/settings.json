@@ -495,7 +495,7 @@
         "strictRoute": "Enrutamiento estricto",
         "autoDetectInterface": "Detectar automáticamente la interfaz de salida del tráfico",
         "lockOutboundInterface": "Lock Outbound Interface",
-        "interfaceName": "Outbound Interface Name",
+        "interfaceName": "Outbound Interface",
         "dnsHijack": "Secuestro de DNS",
         "mtu": "Unidad máxima de transmisión",
         "autoRedirect": "Auto Redirect"
@@ -507,8 +507,11 @@
       "messages": {
         "applied": "Ajustes aplicados",
         "invalidRouteExcludeAddress": "Introduce un bloque CIDR válido",
-        "interfaceNameRequired": "Please enter an outbound interface name",
-        "interfaceNameHint": "Sets the default outbound interface. Update the name when switching networks; node-specific interface settings take precedence.",
+        "interfaceNameRequired": "Please select an outbound interface",
+        "interfaceNameHint": "Locks default outbound connections to the selected interface. Select again when switching networks; node-specific interfaces take precedence.",
+        "interfacesEmpty": "No interfaces found. Refresh to try again.",
+        "interfacesLoadFailed": "Could not load interfaces. Refresh to try again.",
+        "interfaceNotDetected": "Not detected",
         "routeExcludeAddressHint": "Solo se admiten bloques CIDR de IPv4/IPv6, como 192.168.0.0/16 o fd00::/8"
       }
     },
