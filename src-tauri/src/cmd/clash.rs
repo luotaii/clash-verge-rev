@@ -35,6 +35,13 @@ pub async fn patch_clash_config(payload: Mapping) -> CmdResult {
 }
 
 #[tauri::command]
+pub async fn patch_tun_settings(tun: Mapping, interface_name: Option<std::string::String>) -> CmdResult {
+    feat::patch_tun_settings(tun, interface_name.as_deref())
+        .await
+        .map_err(|error| proxy_aware_coded_error(&error, "CLASH_CONFIG_UPDATE_FAILED"))
+}
+
+#[tauri::command]
 pub async fn patch_clash_mode(payload: String) -> CmdResult {
     feat::change_clash_mode(payload)
         .await

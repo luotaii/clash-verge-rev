@@ -298,7 +298,6 @@ impl CoreManager {
     pub async fn init(&self) -> Result<bool> {
         const MAX_PORT_FALLBACK_RETRIES: usize = 3;
 
-        self.recover_tun_guard().await?;
         #[cfg(target_os = "windows")]
         self.spawn_tun_guard_watcher();
 
@@ -318,8 +317,11 @@ impl CoreManager {
                         crate::config::Config::notify_startup_mixed_port_fallback();
                         Ok(!matches!(*self.get_running_mode(), RunningMode::NotRunning))
                     }
-                    Err(error) if crate::core::tun_guard::interface_unavailable(&error).is_some() => {
-                        // A disconnected selected uplink cannot be rescued by changing the proxy port.
+                    Err(error)
+                        if crate::core::tun_guard::interface_unavailable(&error).is_some()
+                            || crate::core::tun_guard::is_guard_failure(&error) =>
+                    {
+                        // Uplink and protection failures cannot be rescued by changing the proxy port.
                         crate::config::Config::notify_startup_mixed_port_fallback();
                         Err(RetryError::Stop(error))
                     }

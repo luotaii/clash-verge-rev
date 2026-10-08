@@ -21,6 +21,7 @@ use tokio::sync::MutexGuard;
 pub(super) enum Patch<'a> {
     Verge { patch: &'a IVerge, persist: bool },
     Clash(&'a Mapping),
+    Tun { clash: &'a Mapping, verge: &'a IVerge },
 }
 
 async fn ensure_restart(manager: &CoreManager) -> Result<()> {
@@ -117,6 +118,7 @@ pub(super) async fn apply(config_write: &MutexGuard<'_, ()>, patch: Patch<'_>, e
     let transaction = match patch {
         Patch::Verge { .. } => DraftTransaction::begin(vec![&verge, &runtime])?,
         Patch::Clash(_) => DraftTransaction::begin(vec![&clash, &runtime])?,
+        Patch::Tun { .. } => DraftTransaction::begin(vec![&clash, &verge, &runtime])?,
     };
     let original_runtime = runtime.data_arc();
     let mut snapshots = capture_config_files().await?;
@@ -124,10 +126,18 @@ pub(super) async fn apply(config_write: &MutexGuard<'_, ()>, patch: Patch<'_>, e
     let verge_patch = match &patch {
         Patch::Verge { patch, .. } => patch,
         Patch::Clash(_) => &empty,
+        Patch::Tun { verge, .. } => verge,
     };
     match &patch {
         Patch::Verge { patch, .. } => verge.edit_draft(|draft| draft.patch_config(patch)),
         Patch::Clash(patch) => clash.edit_draft(|draft| draft.patch_config(patch)),
+        Patch::Tun {
+            clash: clash_patch,
+            verge: verge_patch,
+        } => {
+            clash.edit_draft(|draft| draft.patch_config(clash_patch));
+            verge.edit_draft(|draft| draft.patch_config(verge_patch));
+        }
     }
     let result: Result<()> = async {
         for effect in effects.iter().copied() {
@@ -143,6 +153,10 @@ pub(super) async fn apply(config_write: &MutexGuard<'_, ()>, patch: Patch<'_>, e
             Patch::Verge { persist: true, .. } => verge.latest_arc().save_file().await?,
             Patch::Verge { persist: false, .. } => {}
             Patch::Clash(_) => clash.latest_arc().save_config().await?,
+            Patch::Tun { .. } => {
+                clash.latest_arc().save_config().await?;
+                verge.latest_arc().save_file().await?;
+            }
         }
         Ok(())
     }
@@ -154,6 +168,10 @@ pub(super) async fn apply(config_write: &MutexGuard<'_, ()>, patch: Patch<'_>, e
             // The Core already loaded this runtime; restoring its file would only hide that state.
             let runtime_path = crate::utils::dirs::app_home_dir()?.join(crate::constants::files::RUNTIME_CONFIG);
             snapshots.retain(|snapshot| snapshot.path != runtime_path);
+        }
+        if matches!(patch, Patch::Tun { .. }) {
+            announce(Refresh::Clash);
+            announce(Refresh::Verge);
         }
         return match restore_files(&snapshots).await {
             Ok(()) => Err(error),
@@ -173,6 +191,10 @@ pub(super) async fn apply(config_write: &MutexGuard<'_, ()>, patch: Patch<'_>, e
             announce(Refresh::Verge);
         }
         Patch::Clash(_) => announce(Refresh::Clash),
+        Patch::Tun { .. } => {
+            announce(Refresh::Clash);
+            announce(Refresh::Verge);
+        }
     }
     Ok(())
 }

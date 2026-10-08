@@ -101,6 +101,7 @@ struct ActiveServiceSession {
     proof: OwnerSessionProof,
     supports_runtime_staging: bool,
     supports_runtime_file_read: bool,
+    tun_guard: bool,
 }
 
 fn generate_service_session_token() -> Result<String> {
@@ -130,6 +131,45 @@ pub(crate) fn active_service_supports_runtime_file_read() -> bool {
         .lock()
         .as_ref()
         .is_some_and(|session| session.supports_runtime_file_read)
+}
+
+pub(crate) fn active_service_has_tun_guard() -> bool {
+    ACTIVE_SERVICE_SESSION
+        .lock()
+        .as_ref()
+        .is_some_and(|session| session.tun_guard)
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) async fn stop_owned_core_for_guard_recovery() -> Result<()> {
+    let version = clash_verge_service_ipc::get_version().await?;
+    if version.code != 0 || !version.data.is_some_and(|info| info.supports_owned_core_stop()) {
+        bail!(
+            "The installed service cannot safely release the previous protection session; install the paired service first"
+        );
+    }
+    let credentials = current_owner_credentials()?;
+    let status = clash_verge_service_ipc::get_status(&credentials).await?;
+    if status.code != 0 {
+        bail!("Could not verify the previous service core owner: {}", status.message);
+    }
+    let status = status.data.context("Service core ownership was not returned")?;
+    if !status.is_active {
+        bail!("A different owner may control the existing core; legacy forwarding recovery was not attempted");
+    }
+    let expected_generation = status
+        .active_generation
+        .context("Service core generation was not returned")?;
+    let response = clash_verge_service_ipc::stop_owned_clash(
+        &credentials,
+        &clash_verge_service_ipc::StopOwnedClashRequest { expected_generation },
+    )
+    .await?;
+    if response.code != 0 {
+        bail!("Could not release the previous service core: {}", response.message);
+    }
+    clear_active_service_session();
+    Ok(())
 }
 
 pub(crate) fn clear_active_service_session() {
@@ -894,15 +934,25 @@ pub(super) fn record_residual_service(error: &anyhow::Error) {
 /// 尝试使用服务启动core
 #[tracing::instrument(skip_all, level = "info", fields(generation = tracing::field::Empty, staging = tracing::field::Empty, code = tracing::field::Empty, outcome = tracing::field::Empty))]
 pub(super) async fn start_with_existing_service(config_file: &Path) -> Result<()> {
-    clear_active_service_session();
-
     let credentials = current_owner_credentials()?;
     let runtime = collect_service_runtime_bundle(config_file).await?;
+    #[cfg(target_os = "windows")]
+    let tun_guard = CoreManager::global()
+        .tun_guard_selection(&runtime.yaml)
+        .await
+        .map_err(|error| error.context(crate::core::tun_guard::GuardFailure::Preparation))?
+        .map(|interface_name| clash_verge_service_ipc::TunGuardConfig {
+            interface_name: interface_name.into(),
+        });
+    #[cfg(not(target_os = "windows"))]
+    let tun_guard = None;
+    let guard_requested = tun_guard.is_some();
     let proposed_session_token = generate_service_session_token()?;
     let request = StartClashRequest {
         runtime,
         proposed_session_token: proposed_session_token.clone(),
         macos_proxy: None,
+        tun_guard,
     };
 
     let response = match clash_verge_service_ipc::start_clash(&credentials, &request).await {
@@ -910,7 +960,12 @@ pub(super) async fn start_with_existing_service(config_file: &Path) -> Result<()
         Err(error) => {
             tracing::Span::current().record("outcome", "ipc-unreachable");
             start_owner_monitor();
-            return Err(error).context("无法连接到Clash Verge Service");
+            return Err(if guard_requested {
+                error.context(crate::core::tun_guard::GuardFailure::Preparation)
+            } else {
+                error
+            })
+            .context("无法连接到Clash Verge Service");
         }
     };
 
@@ -935,6 +990,21 @@ pub(super) async fn start_with_existing_service(config_file: &Path) -> Result<()
             Handle::notice(NoticeStatus::ServiceCoreAppDataNotOwned, "");
         }
         start_owner_monitor();
+        if response.code == ServiceErrorCode::TunGuardInterfaceUnavailable as u16 {
+            let name = request
+                .tun_guard
+                .as_ref()
+                .map_or("", |guard| guard.interface_name.as_str());
+            return Err(anyhow::Error::new(crate::core::tun_guard::InterfaceUnavailable {
+                name: name.to_owned(),
+                reason: crate::core::tun_guard::InterfaceUnavailableReason::Disconnected,
+            })
+            .context(err_msg)
+            .context(crate::core::tun_guard::GuardFailure::Preparation));
+        }
+        if response.code == ServiceErrorCode::TunGuardFailed as u16 {
+            return Err(anyhow!("{err_msg}").context(crate::core::tun_guard::GuardFailure::Preparation));
+        }
         return Err(record_service_start_refusal(
             &RUN_STATE,
             ServiceStartRefusal {
@@ -956,6 +1026,7 @@ pub(super) async fn start_with_existing_service(config_file: &Path) -> Result<()
         },
         supports_runtime_staging: capabilities.runtime_staging,
         supports_runtime_file_read: capabilities.runtime_file_read,
+        tun_guard: guard_requested,
     });
 
     // PAC follows the Running Mode; the caller opens it via `core_started(Service)`.
@@ -1602,6 +1673,7 @@ fn start_owner_monitor() {
         logging!(debug, Type::Service, "owner monitor started (generation {generation})");
         let mut watch = OwnerWatch::new();
         let mut core_restarts = None;
+        let mut guard_error = None;
         loop {
             tokio::time::sleep(OWNER_MONITOR_INTERVAL).await;
             if OWNER_MONITOR_GENERATION.load(Ordering::Acquire) != generation {
@@ -1622,8 +1694,23 @@ fn start_owner_monitor() {
             }
 
             let (sample, status) = read_owner_sample().await;
+            if OWNER_MONITOR_GENERATION.load(Ordering::Acquire) != generation {
+                break;
+            }
             if let Some(status) = &status {
                 log_core_restarts(&mut core_restarts, status);
+                let detail = status.tun_guard_error.as_ref().map(|error| &error.message);
+                if let Some(detail) = detail
+                    && guard_error.as_ref() != Some(detail)
+                {
+                    logging!(
+                        warn,
+                        Type::Service,
+                        "Service TUN compatibility protection check failed: {detail}"
+                    );
+                    Handle::notice(NoticeStatus::TunCompatibilityGuardCheckFailed, detail.clone());
+                }
+                guard_error = detail.cloned();
             }
             let mut step = watch.observe(sample);
             if matches!(step, OwnerStep::VerifyTransport) {
@@ -1797,7 +1884,7 @@ async fn recover_after_owner_loss_while_locked(reason: OwnerRecoveryReason) {
     manager.core_stopped();
     if matches!(reason, OwnerRecoveryReason::SameOwnerFailure) {
         manager.confirm_tun_guard_stop();
-        manager.restore_tun_guard(true);
+        manager.restore_tun_guard(true).await;
     }
     // A displaced Service may still run TUN for its new owner, and DNS settings are system-wide.
     #[cfg(target_os = "macos")]

@@ -117,6 +117,13 @@ export async function patchClashConfig(payload: Partial<IConfigData>) {
   return invoke<void>('patch_clash_config', { payload })
 }
 
+export async function patchTunSettings(
+  tun: IConfigData['tun'],
+  interfaceName: string | null,
+) {
+  return invoke<void>('patch_tun_settings', { tun, interfaceName })
+}
+
 export async function patchClashMode(payload: string) {
   return invoke<void>('patch_clash_mode', { payload })
 }

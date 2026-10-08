@@ -59,9 +59,10 @@ where
                     attempt + 1,
                     attempts
                 );
-                if error
-                    .downcast_ref::<service::ServiceStartRefusal>()
-                    .is_some_and(|refusal| service::StageRequest::is_about_the_bundle(refusal.code))
+                if tun_guard::is_guard_failure(&error)
+                    || error
+                        .downcast_ref::<service::ServiceStartRefusal>()
+                        .is_some_and(|refusal| service::StageRequest::is_about_the_bundle(refusal.code))
                 {
                     RetryError::Stop(error)
                 } else {
@@ -229,6 +230,7 @@ impl CoreManager {
                         return Err(error.context(format!("Sidecar exit is not confirmed: {exit_error:#}")));
                     }
 
+                    self.rollback_tun_guard(guard).await;
                     logging!(error, Type::Core, "Failed to start sidecar: {error:#}");
                     return Err(error);
                 }
@@ -301,6 +303,7 @@ impl CoreManager {
                 self.retain_tun_guard(guard);
                 return Err(error.context(format!("Sidecar exit is not confirmed: {exit_error:#}")));
             }
+            self.rollback_tun_guard(guard).await;
             return Err(error);
         }
 
@@ -339,6 +342,9 @@ impl CoreManager {
             self.confirm_tun_guard_stop();
         }
         self.core_stopped();
+        if result.is_ok() {
+            self.restore_tun_guard(true).await;
+        }
         result
     }
 
@@ -368,48 +374,16 @@ impl CoreManager {
 
     #[tracing::instrument(skip_all, level = "info", fields(config_file = %config_file.display()))]
     pub(super) async fn start_core_by_service_with_config(&self, config_file: &Path) -> Result<()> {
-        let yaml = tokio::fs::read_to_string(config_file)
-            .await
-            .context("failed to read the Service core configuration")?;
-        let interface = self.tun_guard_selection(&yaml).await?;
-        let guard = self.prepare_service_tun_guard(interface.as_deref()).await?;
-        self.start_core_by_service_with_prepared_guard(config_file, guard).await
-    }
-
-    pub(super) async fn start_core_by_service_with_prepared_guard(
-        &self,
-        config_file: &Path,
-        guard: tun_guard::GuardTransaction,
-    ) -> Result<()> {
         // 交接时等待 sidecar 释放 ext-controller 通道。
         #[cfg(target_os = "windows")]
         {
             use crate::constants::timing;
-            let started = retry_service_start(timing::SERVICE_START_RETRIES, timing::SERVICE_START_RETRY_DELAY, || {
+            retry_service_start(timing::SERVICE_START_RETRIES, timing::SERVICE_START_RETRY_DELAY, || {
                 service::run_core_by_service(config_file)
             })
-            .await;
-            if let Err(error) = started {
-                if tun_guard::has_owned_guard() {
-                    match clash_verge_service_ipc::execution::reserve_sidecar().await {
-                        Ok(_execution) => {
-                            drop(guard);
-                            self.restore_tun_guard(true);
-                            self.defer_tun_guard_restore();
-                        }
-                        Err(inspection_error) => {
-                            self.retain_tun_guard(guard);
-                            return Err(error.context(format!(
-                                "Service core exit is not confirmed; TUN compatibility protection is retained: {inspection_error:#}"
-                            )));
-                        }
-                    }
-                }
-                return Err(error);
-            }
+            .await?;
             self.mark_core_ready();
             self.core_started(RunningMode::Service);
-            Self::commit_tun_guard(guard);
             self.restore_selected_nodes().await;
             service::request_runtime_provider_sync(timing::RUNTIME_PROVIDER_SYNC_DELAY);
             Ok(())
@@ -420,7 +394,6 @@ impl CoreManager {
             service::run_core_by_service(config_file).await?;
             self.mark_core_ready();
             self.core_started(RunningMode::Service);
-            Self::commit_tun_guard(guard);
             self.restore_selected_nodes().await;
             service::request_runtime_provider_sync(crate::constants::timing::RUNTIME_PROVIDER_SYNC_DELAY);
             Ok(())
@@ -446,7 +419,7 @@ impl CoreManager {
         proxy_control::stop_guard().await;
         self.confirm_tun_guard_stop();
         self.core_stopped();
-        self.restore_tun_guard(true);
+        self.restore_tun_guard(true).await;
         #[cfg(target_os = "macos")]
         crate::utils::resolve::dns::sync_public_dns().await;
     }

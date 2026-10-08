@@ -10,7 +10,10 @@ import { glob } from 'glob'
 import { HttpsProxyAgent } from 'https-proxy-agent'
 import { extract } from 'tar'
 
-import { resolveServiceRelease } from './service-release.mjs'
+import {
+  resolvePinnedServiceManifest,
+  resolveServiceRelease,
+} from './service-release.mjs'
 import { log_debug, log_error, log_info, log_success } from './utils.mjs'
 
 /** Prepares platform resources, caching versions and unchanged files unless `--force` is used. */
@@ -590,13 +593,35 @@ async function resolveServiceBundle() {
     .split(/\r?\n/)
     .find((line) => line.trimStart().startsWith('clash_verge_service_ipc ='))
   const sourcePath = serviceDependency?.match(/\bpath\s*=\s*"([^"]+)"/)?.[1]
-  if (sourcePath) {
-    const manifest = path.resolve(cwd, 'src-tauri', sourcePath, 'Cargo.toml')
+  const sourceRevision = serviceDependency?.match(/\brev\s*=\s*"([^"]+)"/)?.[1]
+  if (sourcePath || sourceRevision) {
+    const manifest = sourcePath
+      ? path.resolve(cwd, 'src-tauri', sourcePath, 'Cargo.toml')
+      : resolvePinnedServiceManifest(
+          cargoManifest,
+          JSON.parse(
+            execFileSync(
+              'cargo',
+              [
+                'metadata',
+                '--locked',
+                '--format-version=1',
+                '--manifest-path',
+                path.join(cwd, 'src-tauri', 'Cargo.toml'),
+                '--filter-platform',
+                SIDECAR_HOST,
+              ],
+              { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
+            ),
+          ),
+          path.join(cwd, 'src-tauri', 'Cargo.toml'),
+        )
     const targetDirectory = path.join(cwd, 'target', 'bundled-service')
     execFileSync(
       'cargo',
       [
         'build',
+        '--locked',
         '--manifest-path',
         manifest,
         '--target-dir',
@@ -606,7 +631,7 @@ async function resolveServiceBundle() {
         '--release',
         '--features',
         'standalone,client',
-        '--bins',
+        ...SERVICE_BINARIES.flatMap((name) => ['--bin', name]),
       ],
       { stdio: 'inherit' },
     )

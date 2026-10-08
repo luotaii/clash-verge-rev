@@ -1,4 +1,4 @@
-use super::{CoreFailure, CoreManager, PROFILE_SELECTIONS_PENDING_COMMIT, RunningMode};
+use super::{CoreManager, PROFILE_SELECTIONS_PENDING_COMMIT, RunningMode};
 use crate::core::notify::NoticeStatus;
 use crate::core::service::StageRequest;
 use crate::{
@@ -45,10 +45,6 @@ enum ConfigApplication {
 }
 
 pub(crate) struct ConfigUpdateGuard<'a>(&'a CoreManager);
-
-const fn retry_selected_interface_start(mode: RunningMode, failure: Option<&CoreFailure>) -> bool {
-    matches!(mode, RunningMode::NotRunning) && matches!(failure, Some(CoreFailure::SelectedInterfaceUnavailable(_)))
-}
 
 impl Drop for ConfigUpdateGuard<'_> {
     fn drop(&mut self) {
@@ -389,9 +385,8 @@ impl CoreManager {
 
     /// Applies a generated configuration through the active core owner.
     async fn apply_config(&self, path: PathBuf) -> Result<()> {
-        if retry_selected_interface_start(*self.get_running_mode(), self.get_startup_error().as_ref()) {
-            // There is no core to reload after a disconnected uplink blocked startup.
-            // Start the new selection directly, without preparing protection for a nonexistent reload.
+        if matches!(*self.get_running_mode(), RunningMode::NotRunning) {
+            // No core exists locally to reload; retry through the same guarded startup path.
             return self.start_core_during_config_update().await;
         }
         if matches!(*self.get_running_mode(), RunningMode::Service) {
@@ -410,6 +405,15 @@ impl CoreManager {
     /// Caller must hold `lifecycle_lock`.
     #[tracing::instrument(skip_all, level = "info", fields(path = %path.display(), outcome = tracing::field::Empty))]
     async fn apply_config_by_service(&self, path: &std::path::Path) -> Result<()> {
+        #[cfg(target_os = "windows")]
+        if crate::core::service::active_service_has_tun_guard()
+            || self
+                .tun_guard_selection(&Config::runtime_config_yaml().await?)
+                .await?
+                .is_some()
+        {
+            return self.replace_service_core_with_config(path).await;
+        }
         match plan_config_application(&self.attempt_staging(path).await) {
             ConfigApplication::Fail(message) => {
                 // Replacement would hand the service the same rejected bundle.
@@ -490,10 +494,7 @@ impl CoreManager {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ConfigApplication, CoreFailure, RunningMode, StageAttempt, StageRequest, plan_config_application,
-        retry_selected_interface_start, stage_with_confirmation,
-    };
+    use super::{ConfigApplication, StageAttempt, StageRequest, plan_config_application, stage_with_confirmation};
     use clash_verge_service_ipc::{StageRejection, StageRuntimeOutcome};
     use std::{cell::Cell, time::Duration};
 
@@ -524,20 +525,6 @@ mod tests {
 
     const CONFIRM_WITHIN: Duration = Duration::from_secs(5);
 
-    #[test]
-    fn reselecting_after_an_unavailable_uplink_starts_instead_of_reloading() {
-        let failure = CoreFailure::SelectedInterfaceUnavailable("WLAN".into());
-        assert!(retry_selected_interface_start(RunningMode::NotRunning, Some(&failure)));
-        for mode in [RunningMode::Sidecar, RunningMode::Service] {
-            assert!(!retry_selected_interface_start(mode, Some(&failure)));
-        }
-        assert!(!retry_selected_interface_start(RunningMode::NotRunning, None));
-        assert!(!retry_selected_interface_start(
-            RunningMode::NotRunning,
-            Some(&CoreFailure::StartFailed("journal recovery failed".into()))
-        ));
-    }
-
     fn staged() -> StageAttempt {
         StageAttempt::Answered(StageRuntimeOutcome::Staged {
             config_path: "/service/runtime.generation-1/config.yaml".to_owned(),
@@ -550,7 +537,8 @@ mod tests {
             StageRejection::CoreNotRunning
             | StageRejection::CorePathChanged
             | StageRejection::RuntimeUnwritable { .. }
-            | StageRejection::CoreRestarted => {}
+            | StageRejection::CoreRestarted
+            | StageRejection::TunGuardRequiresRestart => {}
         }
         StageAttempt::Answered(StageRuntimeOutcome::RestartRequired { reason })
     }
@@ -565,6 +553,7 @@ mod tests {
             },
             // A watchdog restart mid-staging can leave a generation that no manifest describes.
             StageRejection::CoreRestarted,
+            StageRejection::TunGuardRequiresRestart,
         ] {
             assert_eq!(
                 plan_config_application(&declined(reason.clone())),
